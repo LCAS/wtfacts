@@ -1,0 +1,19 @@
+#goal definition
+string     operation 	# 'create', 'append', 'predict', 'delete', 'list'
+                        #   -  'create' creates a new wavelet [model] using the corresponding [values] and [timestamps]
+                        #   -  'append' appends [values] and [timestamps] to the provided [model], recalculating the model
+                        #   -  'predict' returns expected [values] at provided [model] and  [timestamps] 
+                        #   -  'delete' drops [model] from server
+                        #   -  'list' returns a list of available wavelet models within [message]
+string     model  	    # [create, append, predict, delete] unique name to design wavelet model
+float32[]  values   	# [create, append]
+time[]     timestamps 	# [create, append, predict]
+
+---
+#result definition
+bool success		    # [all]     operation result
+float32[]  values   	# [predict] predicted values
+string message 		    # [all]     message: description of result
+---
+#feedback
+string status           # [all]
