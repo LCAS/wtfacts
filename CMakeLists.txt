@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(wtfActs)
+project(wtfacts)
 
 ## Find catkin dependencies
 find_package(catkin REQUIRED COMPONENTS 
@@ -18,7 +18,7 @@ generate_messages(DEPENDENCIES std_msgs actionlib_msgs)
 
 ## Define catkin exports
 catkin_package(
-  CATKIN_DEPENDS message_runtime actionlib
+  CATKIN_DEPENDS message_runtime actionlib actionlib_msgs
   # DEPENDS
 )
 

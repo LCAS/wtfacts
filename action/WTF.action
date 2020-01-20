@@ -1,19 +1,19 @@
 #goal definition
-string     operation 	# 'create', 'append', 'predict', 'delete', 'list'
-                        #   -  'create' creates a new wavelet [model] using the corresponding [values] and [timestamps]
+string     operation 	# == 'bcreate' | 'append' | 'predict' | 'delete' | 'list'
+                        #   -  'bcreate' creates a new binary wavelet [model] using the corresponding [values] and [timestamps]
                         #   -  'append' appends [values] and [timestamps] to the provided [model], recalculating the model
                         #   -  'predict' returns expected [values] at provided [model] and  [timestamps] 
                         #   -  'delete' drops [model] from server
                         #   -  'list' returns a list of available wavelet models within [message]
-string     model  	    # [create, append, predict, delete] unique name to design wavelet model
-float32[]  values   	# [create, append]
-time[]     timestamps 	# [create, append, predict]
+string     model  	    # [bcreate, append, predict, delete] unique name to design wavelet model
+float32[]  values   	# [bcreate, append] model BINARY data values. future versions will support float ones. 
+int32[]    timestamps 	# [bcreate, append, predict] timestamps for values, POSIX seconds
 
 ---
 #result definition
 bool success		    # [all]     operation result
 float32[]  values   	# [predict] predicted values
-string message 		    # [all]     message: description of result
+string message 		    # [all]     description of result AND list of wavelet models
 ---
 #feedback
 string status           # [all]

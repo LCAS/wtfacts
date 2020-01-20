@@ -16,14 +16,14 @@ Library for the WaveModels package:
 '''
 
 
-def chooseThreshold(X, T, resampling = '30S', mother_wavelet_type = 'rbio2.2', wave_mode = 'periodization', lenThVector=10):
+def chooseThreshold(X, T, resampling = 30, mother_wavelet_type = 'rbio2.2', wave_mode = 'per', lenThVector=10):
     '''
 
     :param X: Input sensor data
     :param T: Unix timestamps of that data
     :param resampling: sampling period, as string. Useful when data is not at constant rate
     :param mother_wavelet_type: check families with pywt.families() and wavelets in each with pywt.wavelist(family_i, kind='discrete')
-    :param wave_mode: periodization ....
+    :param wave_mode: check modes with print(pywt.MODES.modes) and see https://pywavelets.readthedocs.io/en/latest/ref/signal-extension-modes.html
     :param lenThVector:  how many swaps...
     :return: threshold_vector,mse_list
     '''
@@ -35,17 +35,21 @@ def chooseThreshold(X, T, resampling = '30S', mother_wavelet_type = 'rbio2.2', w
 
     # build a list of threshold values based on the coefficient values
     tmp = np.abs(np.append(cA, cD))
-    tmp = np.ceil(100 * tmp) / 100
     tmp = list(set(tmp))
+    tmp = np.ceil(100 * tmp) / 100
     tmp.sort()
+
     stepTh = int(len(tmp) / lenThVector)
     if stepTh == 0:
         stepTh = 1
 
     # I remove the last one because makes no sense, it would be without data
-    tmp = tmp[0:-1:stepTh]
+    threshold_vector = tmp[0:-1:stepTh]
 
-    threshold_vector = tmp
+    # need one at least
+    if (len(threshold_vector)==0):
+        threshold_vector = [ tmp[-2] ]
+    
     mse_list = []
     for coef_thre in threshold_vector:
         cAhat = cA.copy()
@@ -83,7 +87,7 @@ def conditionIDWT(xh,N):
     xrec[xrec > 0.0] = 1.0
     return xrec
 
-def conditionDWT(X,T,resampling = '30S'):
+def conditionDWT(X,T,resampling = 30):
     '''
 
     :param X: input data
@@ -91,17 +95,21 @@ def conditionDWT(X,T,resampling = '30S'):
     :param resampling:  resampling time to continuous data
     :return:  X resampled to provided period, data timestamps and length
     '''
-
-    timeSerie = pd.Series(X, T)
-    timeSerie = timeSerie.resample(resampling).ffill()
+    
+    # from POSIX seconds to pandas datetime
+    T1 = pd.to_datetime(T,unit='s')
+    timeSerie = pd.Series(X, T1)
+    
+    tDelta = pd.Timedelta(seconds=resampling)
+    timeSerie = timeSerie.resample(tDelta).ffill()
 
     data = timeSerie.values
-    times = timeSerie.index.values
+    times = timeSerie.index.values.astype(np.int64) // 10**6
     N = len(times)
     return (data,times,N)
 
 
-def createModel(X, T, c_threshold, resampling = '30S', mother_wavelet_type = 'rbio2.2', wave_mode = 'periodization'):
+def createModel(X, T, c_threshold, resampling = 30, mother_wavelet_type = 'rbio2.2', wave_mode = 'per'):
     '''
     :param X: input data
     :param T: sampling times
@@ -133,18 +141,38 @@ def predictWaveletValues(tArray, waveletModel):
     :param waveletModel:  model used
     :return:  x_predicted
     '''
+    
     (cAhat, cDhat, N, t0, resampling, wave_mode, mother_wavelet_type)  = waveletModel
+
+    # coefficients are densely stored
+    cAhat = cAhat.todense().A1
+    cDhat = cDhat.todense().A1
 
     mother_wavelet = pywt.Wavelet(mother_wavelet_type)
     xhat = pywt.idwt(cAhat, cDhat, wavelet=mother_wavelet, mode=wave_mode)
     xhat = conditionIDWT(xhat, N)
 
+    n = getSamplesReal(tArray, resampling, N, t0 )
+    x_pred=[]
+    for n_i in n:
+        x_i =  xhat[n_i]
+        x_pred.append(x_i)
+
+    return x_pred
+
+
     # t0 initial timestamp from model in seconds
     # fs sampling frequency in model in hertzs
     # N number of samples in model
 
+def getSamplesReal(tArray, resampling, N, t0 ):
+
     fs = 1.0/ resampling
     tM = t0 + np.arange(0, (N/fs), 1/fs)
+    
+    # print("N is " + str(N))
+    # print("tM len is "+str(len(tM) ) )
+
     dM = map(datetime.datetime.fromtimestamp,tM)
 
     # get indexers from model
@@ -153,34 +181,37 @@ def predictWaveletValues(tArray, waveletModel):
     minM =np.array(map(lambda x: x.minute, dM))
     secM =np.array(map(lambda x: x.second, dM))
 
-    x_pred=[]
     debugC=0
-    for tf in tArray:
-        n_i =  getSampleReal(tf,weekM,hourM,minM,secM)
-        x_i =  xhat[n_i]
-        x_pred.append(x_i)
+    n_=[ getSampleReal(tf,resampling,weekM,hourM,minM,secM) for tf in tArray ]
 
-        # debug
-        if debugC==0:
-            fmt = "%d/%m/%y - %H:%M:%S"
-            df = datetime.datetime.utcfromtimestamp(tf)
-            dm = dM[n_i]
-            print 'tf (' + df.strftime(fmt) + ' == tm(' + dm.strftime(fmt) + ')'
-        debugC = (debugC+1)%2000
+    return n_
 
-    return x_pred
 
-def getSampleReal(tf, weekM, hourM, minM, secM):
-    # tf future timestamp in seconds
+def getSampleReal(tf0, ts, weekM, hourM, minM, secM):
+    # tf0 is future timestamp in epoc seconds
+
+    # we round it with sampling time ts
+    tf = (tf0 // ts) * ts
 
     # tf = (df-datetime.datetime(1970,1,1,0,0,0)).total_seconds()
     df = datetime.datetime.fromtimestamp(tf)
 
     # candidates have same weekday hour, minute and second.
+    sameWeek = (weekM == df.weekday()) 
+    sameHour = (hourM == df.hour) 
+    sameMin = (minM == df.minute) 
+    sameSec = (secM == df.second)
 
-    indexs = (weekM == df.weekday()) & (hourM == df.hour) & (minM == df.minute) & (secM == df.second)
+    # print("future time is (" + str(tf0) + "): "+datetime2str(datetime.datetime.fromtimestamp(tf0))) 
+    # print("Rounded to (" + str(tf) + "): "+datetime2str(df)) 
+
+    indexs = sameSec & sameMin & sameHour & sameWeek
     if not indexs.any():
-        indexs = (hourM == df.hour) & (minM == df.minute) & (secM == df.second)
+        indexs = sameSec & sameMin & sameHour
+    if not indexs.any():
+        indexs = sameSec & sameMin
+    if not indexs.any():
+        indexs = sameSec 
 
     # todo affine this
     selectedIndex = np.nonzero(indexs)[0][0]
@@ -188,3 +219,8 @@ def getSampleReal(tf, weekM, hourM, minM, secM):
     ans = selectedIndex
 
     return ans
+
+def datetime2str(d):
+    fmt = "%d/%m/%y - %H:%M:%S"
+    #d = datetime.datetime.utcfromtimestamp(tf)
+    return d.strftime(fmt)
